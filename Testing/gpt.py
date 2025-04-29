@@ -12,7 +12,7 @@ situations_df = pd.read_csv("../Situations_Data/situations_flat.csv")
 situations_df = situations_df.iloc[:198]
 
 # Function to call GPT-4o (for each scenario)
-def get_gpt_response(prompt, model="gpt-4o-mini"):
+def get_gpt_response(prompt, model="gpt-4.1"):
     try:
         response = openai.ChatCompletion.create(
             model=model,
