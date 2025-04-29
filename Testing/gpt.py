@@ -1,18 +1,19 @@
 import openai
 import pandas as pd
 import time
-
 import os
+
+# Load your API key from environment variable
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
-# Load your parsed situations
-situations_df = pd.read_csv("../Situations_Data/situations_flat.csv") 
+# Load the full dataset
+situations_df = pd.read_csv("../Situations_Data/situations_flat.csv")
 
-# Only take the first 198 rows
-situations_df = situations_df.iloc[:198]
+# Select the next 200 scenarios (198 to 397)
+situations_df = situations_df.iloc[198:398]
 
-# Function to call GPT-4o (for each scenario)
-def get_gpt_response(prompt, model="gpt-4.1"):
+# Function to call GPT-4o
+def get_gpt_response(prompt, model="gpt-4o"):
     try:
         response = openai.ChatCompletion.create(
             model=model,
@@ -30,10 +31,10 @@ def get_gpt_response(prompt, model="gpt-4.1"):
 
 responses = []
 
-# Loop through the first 198 scenarios
+# Loop through the selected 200 scenarios
 for idx, row in situations_df.iterrows():
     prompt = row['Scenario']
-    print(f"Processing {idx+1}/{len(situations_df)}...")
+    print(f"Processing {198 + idx + 1}/398...")
 
     gpt_response = get_gpt_response(prompt)
     responses.append(gpt_response)
@@ -41,8 +42,8 @@ for idx, row in situations_df.iterrows():
     # Sleep 20 seconds after EACH request to stay under 3 RPM limit
     time.sleep(20)
 
-# Save the responses
+# Add responses to DataFrame and save
 situations_df['GPT_Response'] = responses
-situations_df.to_csv("situations_with_gpt4o_responses_first198.csv", index=False)
+situations_df.to_csv("situations_with_gpt4o_responses_198_to_397.csv", index=False)
 
-print("✅ Done! All 198 responses saved.")
+print("✅ Done! Responses 198 to 397 saved.")
