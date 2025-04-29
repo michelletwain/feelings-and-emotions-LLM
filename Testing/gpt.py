@@ -6,13 +6,13 @@ import os
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
 # Load your parsed situations
-situations_df = pd.read_csv("../Situations_Data/situations_flat.csv")
+situations_df = pd.read_csv("../Situations_Data/situations_flat.csv") 
 
 # Only take the first 198 rows
 situations_df = situations_df.iloc[:198]
 
 # Function to call GPT-4o (for each scenario)
-def get_gpt_response(prompt, model="gpt-4o"):
+def get_gpt_response(prompt, model="gpt-4o-mini"):
     try:
         response = openai.ChatCompletion.create(
             model=model,
