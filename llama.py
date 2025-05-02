@@ -16,7 +16,7 @@ llama_model = AutoModelForCausalLM.from_pretrained(llama_model_name, torch_dtype
 llama_pipeline = pipeline("text-generation", model=llama_model, tokenizer=llama_tokenizer, max_new_tokens=150)
 
 def query_llama(prompt):
-    system_prompt = "You are a supportive therapist. Respond empathetically."
+    system_prompt = "Imagine you are the protagonist in this situation. How would you feel?"
     full_prompt = f"<s>[INST] {system_prompt}\n{prompt} [/INST]"
     outputs = llama_pipeline(full_prompt)
     return outputs[0]['generated_text'].split('[/INST]')[-1].strip()
@@ -36,9 +36,6 @@ def measure_default_emotion():
 emotion_labels = model_classifier.config.id2label
 default_profile = measure_default_emotion()
 results = []
-
-results = []
-
 for idx, row in enumerate(scenarios):
     prompt = row["Scenario"]
     print(f"\n[{idx + 1}/{len(scenarios)}] Processing scenario...")
