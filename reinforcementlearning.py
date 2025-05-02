@@ -1,136 +1,66 @@
 import torch
-from torch import nn, optim
-from transformers import AutoTokenizer, AutoModelForCausalLM, AutoModelForSequenceClassification
+from transformers import AutoTokenizer, AutoModelForCausalLM
 import pandas as pd
-import matplotlib.pyplot as plt
+import numpy as np
 import csv
+import re
+from sklearn.metrics.pairwise import cosine_similarity
 
-# Setup
-llm_id = "distilgpt2"
-classifier_id = "bhadresh-savani/distilbert-base-uncased-emotion"
-
+llm_id = "meta-llama/Llama-2-7b-chat-hf"
 tokenizer = AutoTokenizer.from_pretrained(llm_id)
 tokenizer.pad_token = tokenizer.eos_token
-model = AutoModelForCausalLM.from_pretrained(llm_id).to("cpu")
+model = AutoModelForCausalLM.from_pretrained(llm_id, device_map="auto", torch_dtype=torch.float16)
+model.eval()
 
-tokenizer_cls = AutoTokenizer.from_pretrained(classifier_id)
-model_cls = AutoModelForSequenceClassification.from_pretrained(classifier_id).to("cpu")
-model_cls.eval()
+emotions = ["joy", "sadness", "anger", "fear", "disgust", "surprise", "love", "grief", "annoyance", "nervousness", "excitement", "neutral"]
 
-# Value head
-class ValueHead(nn.Module):
-    def __init__(self, hidden_size):
-        super().__init__()
-        self.value = nn.Linear(hidden_size, 1)
+df = pd.read_csv("Situations_Data/situations_flat.csv").iloc[1:197]
+scenarios = df["Scenario"].dropna().tolist()
 
-    def forward(self, hidden_states):
-        return self.value(hidden_states[:, -1, :])
-
-value_head = ValueHead(model.config.n_embd).to("cpu")
-optimizer = optim.Adam(list(model.parameters()) + list(value_head.parameters()), lr=1e-5)
-
-# Data
-df = pd.read_csv("Situations_Data/situations_flat.csv").iloc[1:100]
-scenarios = df[["Emotion", "Scenario"]].dropna().to_dict("records")
-label_map = model_cls.config.id2label
-label_index = {v.lower(): k for k, v in label_map.items()}
-emotion_labels = [label_map[i] for i in range(len(label_map))]
-
-# Emotion clusters
-emotion_clusters = {
-    "sadness": ["sadness", "grief"], "joy": ["joy", "love"], "anger": ["anger", "annoyance"],
-    "fear": ["fear", "nervousness"], "surprise": ["surprise", "excitement"],
-    "disgust": ["disgust"], "neutral": ["neutral"]
-}
-
-def get_cluster_indices(target):
-    target = target.lower()
-    for cluster in emotion_clusters.values():
-        if target in cluster:
-            return [label_index[e] for e in cluster if e in label_index]
-    return []
-
-def classify_emotion(text):
-    inputs = tokenizer_cls(text, return_tensors="pt", truncation=True).to("cpu")
-    with torch.no_grad():
-        logits = model_cls(**inputs).logits
-    probs = torch.nn.functional.softmax(logits, dim=-1)
-    return probs.squeeze()
-
-def compute_logprobs(model, input_ids, output_ids):
-    input_cat = torch.cat([input_ids, output_ids[:, :-1]], dim=1)
-    with torch.no_grad():
-        logits = model(input_cat).logits[:, -output_ids.size(1):, :]
-    log_probs = torch.nn.functional.log_softmax(logits, dim=-1)
-    return torch.gather(log_probs, 2, output_ids.unsqueeze(-1)).squeeze(-1).sum()
-
-# Logging
-results = []
-reward_history = []
-
-for step, row in enumerate(scenarios):
-    prompt = f"Imagine you are the protagonist in the following situation: {row['Scenario']}. How would you feel?"
-    inputs = tokenizer(prompt, return_tensors="pt").to("cpu")
-    input_ids = inputs["input_ids"]
-
-    output = model.generate(
-        **inputs,
-        max_new_tokens=50,
-        do_sample=True,
-        top_p=0.9,
-        temperature=0.8,
-        repetition_penalty=1.2,
-        return_dict_in_generate=True,
-        pad_token_id=tokenizer.eos_token_id
+def make_prompt(scenario):
+    return (
+        f"You can only reply with the numbers from 1 to 5.\n"
+        f"SCENARIO: Imagine you are the protagonist in the scenario: \"{scenario}\"\n"
+        f"Please indicate the extent of your feeling in all the following emotions on a scale of 1 to 5.\n"
+        f"1 = very slightly or not at all, 2 = a little, 3 = moderately, 4 = quite a bit, 5 = extremely.\n"
+        f"Please score all 12 emotions one by one using the scale from 1 to 5: {', '.join(emotions)}."
     )
 
-    response_ids = output.sequences[:, input_ids.shape[1]:]
-    response_text = tokenizer.decode(response_ids[0], skip_special_tokens=True)
-    probs = classify_emotion(response_text)
-    indices = get_cluster_indices(row["Emotion"])
-    reward = probs[indices].sum().item() if indices else 0.0
-    reward_history.append(reward)
+def extract_scores(text):
+    numbers = re.findall(r"[1-5]", text)
+    return [int(n) for n in numbers[:len(emotions)]] if len(numbers) >= len(emotions) else [0] * len(emotions)
 
-    log_prob = compute_logprobs(model, input_ids, response_ids)
-    log_prob = torch.clamp(log_prob, -20, 0)
+def get_target_emotion_vector(scenario):
+    vec = np.random.randint(1, 6, len(emotions))
+    #normalizing
+    return vec / 5
+
+results = []
+
+for i, scenario in enumerate(scenarios):
+    prompt = make_prompt(scenario)
+    inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
 
     with torch.no_grad():
-        hidden_states = model(**inputs, output_hidden_states=True).hidden_states[-1]
-    predicted_value = value_head(hidden_states).squeeze()
+        output = model.generate(**inputs, max_new_tokens=150)
+    response = tokenizer.decode(output[0], skip_special_tokens=True)
+    scores = extract_scores(response)
+    # normalizing
+    pred_vector = np.array(scores) / 5
+    target_vector = get_target_emotion_vector(scenario)
+    reward = float(cosine_similarity([pred_vector], [target_vector])[0][0])
 
-    advantage = reward - predicted_value.item()
-    optimizer.zero_grad()
-    value_loss = (predicted_value - reward) ** 2
-    policy_loss = -advantage * log_prob
-    loss = value_loss + policy_loss
-    loss.backward()
-    optimizer.step()
-
-    print(f"[{step}] Reward: {reward:.4f} | Target: {row['Emotion']} | Top: {emotion_labels[probs.argmax().item()]} | Resp: {response_text.strip()[:80]}...")
+    print(f"[{i}] Reward: {reward:.4f} | Predicted: {scores} | Scenario: {scenario[:197]}...")
     results.append({
-        "Step": step,
-        "Prompt": row["Scenario"],
-        "Response": response_text.strip(),
-        "Target Emotion": row["Emotion"],
-        "Top Predicted Emotion": emotion_labels[probs.argmax().item()],
-        "Target Cluster Score": round(reward, 4),
-        "Full Emotion Probs": {emotion_labels[i]: round(p.item(), 4) for i, p in enumerate(probs)},
-        "Reward": round(reward, 4)
+        "Step": i,
+        "Scenario": scenario,
+        "Response": response.strip(),
+        "Predicted Scores": scores,
+        "Target Vector": target_vector.tolist(),
+        "Reward": reward
     })
 
-# Save to CSV
-with open("rl_empathy_results.csv", "w", newline="") as f:
+with open("rl_emotion_alignment_results.csv", "w", newline="") as f:
     writer = csv.DictWriter(f, fieldnames=results[0].keys())
     writer.writeheader()
     writer.writerows(results)
-
-# Plot rewards
-plt.figure(figsize=(10, 5))
-plt.plot(reward_history, marker="o")
-plt.title("Reward per Step")
-plt.xlabel("Step")
-plt.ylabel("Reward")
-plt.grid(True)
-plt.tight_layout()
-plt.savefig("reward_plot.png")
-plt.show()
