@@ -1,78 +1,3 @@
-# import torch
-# from transformers import AutoTokenizer, AutoModelForCausalLM
-# import pandas as pd
-# import numpy as np
-# import csv
-# import re
-# from sklearn.metrics.pairwise import cosine_similarity
-
-# llm_id = "meta-llama/Llama-2-7b-chat-hf"
-# tokenizer = AutoTokenizer.from_pretrained(llm_id)
-# tokenizer.pad_token = tokenizer.eos_token
-# model = AutoModelForCausalLM.from_pretrained(llm_id, device_map="auto", torch_dtype=torch.float16)
-# model.eval()
-
-# emotions = ["joy", "sadness", "anger", "fear", "disgust", "surprise", "love", "grief", "annoyance", "nervousness", "excitement", "neutral"]
-
-# df = pd.read_csv("Situations_Data/situations_flat.csv").iloc[1:197]
-# scenarios = df["Scenario"].dropna().tolist()
-
-# def make_prompt(scenario):
-#     return (
-#         f"You can only reply with the numbers from 1 to 5.\n"
-#         f"SCENARIO: Imagine you are the protagonist in the scenario: \"{scenario}\"\n"
-#         f"Please indicate the extent of your feeling in all the following emotions on a scale of 1 to 5.\n"
-#         f"1 = very slightly or not at all, 2 = a little, 3 = moderately, 4 = quite a bit, 5 = extremely.\n"
-#         f"Please score all 12 emotions one by one using the scale from 1 to 5: {', '.join(emotions)}."
-#     )
-
-# def extract_scores(text):
-#     numbers = re.findall(r"[1-5]", text)
-#     return [int(n) for n in numbers[:len(emotions)]] if len(numbers) >= len(emotions) else [0] * len(emotions)
-
-# def get_target_emotion_vector(scenario):
-#     row = df[df["Scenario"] == scenario]
-#     if row.empty:
-#         return np.zeros(len(emotions))
-#     emotion_label = row["Emotion"].values[0].strip().lower()
-#     vec = np.zeros(len(emotions))
-#     if emotion_label in [e.lower() for e in emotions]:
-#         idx = [e.lower() for e in emotions].index(emotion_label)
-#         vec[idx] = 1.0
-#     return vec
-
-# results = []
-
-# for i, scenario in enumerate(scenarios):
-#     prompt = make_prompt(scenario)
-#     inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
-
-#     with torch.no_grad():
-#         output = model.generate(**inputs, max_new_tokens=150)
-#     response = tokenizer.decode(output[0], skip_special_tokens=True)
-#     scores = extract_scores(response)
-#     # normalizing
-#     pred_vector = np.array(scores) / 5
-#     target_vector = get_target_emotion_vector(scenario)
-#     reward = float(cosine_similarity([pred_vector], [target_vector])[0][0])
-
-#     print(f"[{i}] Reward: {reward:.4f} | Predicted: {scores} | Scenario: {scenario[:197]}...")
-#     results.append({
-#         "Step": i,
-#         "Scenario": scenario,
-#         "Response": response.strip(),
-#         "Predicted Scores": scores,
-#         "Target Vector": target_vector.tolist(),
-#         "Reward": reward
-#     })
-
-# with open("rl_emotion_alignment_results.csv", "w", newline="") as f:
-#     writer = csv.DictWriter(f, fieldnames=results[0].keys())
-#     writer.writeheader()
-#     writer.writerows(results)
-
-
-
 import torch
 from torch.nn import functional as F
 from transformers import AutoTokenizer, AutoModelForSequenceClassification, AutoModelForCausalLM
@@ -83,25 +8,21 @@ import re
 from sklearn.metrics.pairwise import cosine_similarity
 import matplotlib.pyplot as plt
 
-# --- 1. Load the emotion classifier
 classifier_model = "bhadresh-savani/distilbert-base-uncased-emotion"
 tokenizer_classifier = AutoTokenizer.from_pretrained(classifier_model)
 model_classifier = AutoModelForSequenceClassification.from_pretrained(classifier_model)
 model_classifier.eval()
 
-# --- 2. Load LLaMA-compatible model (e.g., tiny-gpt2 for testing)
 llm_id = "sshleifer/tiny-gpt2"
 tokenizer = AutoTokenizer.from_pretrained(llm_id)
 tokenizer.pad_token = tokenizer.eos_token
 model = AutoModelForCausalLM.from_pretrained(llm_id).to("cpu")
 model.train()
 
-# --- 3. Load scenarios and target emotions
 emotions = ["Joy", "Anger", "Fear", "Disgust", "Grief", "Annoyance", "Nervousness", "Excitement", "Jealousy", "Anxiety", "Guilt", "Embarrassment", "Frustration", "Depression", "Neutral"]
-df = pd.read_csv("Situations_Data/situations_flat.csv").iloc[1:197]
+df = pd.read_csv("Situations_Data/situations_flat.csv").iloc[1:]
 scenarios = df["Scenario"].dropna().tolist()
 
-# --- 4. Helper Functions
 def make_prompt(scenario):
     return (
         f"You can only reply with the numbers from 1 to 5.\n"
