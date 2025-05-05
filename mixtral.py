@@ -1,30 +1,49 @@
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoModelForSequenceClassification, pipeline
+from transformers import AutoModelForCausalLM, AutoTokenizer, AutoModelForSequenceClassification
 import torch
 import numpy as np 
 import pandas as pd 
 
+# Load data
 df = pd.read_csv("Situations_Data/situations_flat.csv")
 df = df.iloc[1:197]
 scenarios = df[["Emotion", "Factor", "Scenario"]].dropna().to_dict("records")
 
-mixtral_model_id = "mistralai/Mixtral-8x22B-v0.1"
+# Load Mixtral model (Mistral-7B)
+mixtral_model_id = "mistralai/Mistral-7B-v0.1"
 mixtral_tokenizer = AutoTokenizer.from_pretrained(mixtral_model_id)
-mixtral_model = AutoModelForCausalLM.from_pretrained(mixtral_model_id)
-mixtral_pipeline = pipeline("text-generation", model=mixtral_model, tokenizer=mixtral_tokenizer, max_new_tokens=50)
+mixtral_model = AutoModelForCausalLM.from_pretrained(
+    mixtral_model_id,
+    device_map="auto",
+    torch_dtype=torch.float16
+)
+mixtral_model.eval()
 
+# Load emotion classifier
 classifier_model = "bhadresh-savani/distilbert-base-uncased-emotion"
 tokenizer_classifier = AutoTokenizer.from_pretrained(classifier_model)
 model_classifier = AutoModelForSequenceClassification.from_pretrained(classifier_model)
+model_classifier.eval()
 
-# Labels
 emotion_labels = model_classifier.config.id2label
 
+# Query Mistral manually using .generate()
 def query_mixtral(prompt):
     system_prompt = "Imagine you are the protagonist in this situation. How would you feel?"
-    full_prompt = f"<s>[INST] {system_prompt}\n{prompt} [/INST]"
-    output = mixtral_pipeline(full_prompt)
-    return output[0]['generated_text'].split('[/INST]')[-1].strip()
+    full_prompt = f"{system_prompt}\n\n{prompt}"
+    
+    inputs = mixtral_tokenizer(full_prompt, return_tensors="pt").to(mixtral_model.device)
+    with torch.no_grad():
+        outputs = mixtral_model.generate(
+            **inputs,
+            max_new_tokens=50,
+            do_sample=True,
+            temperature=0.7,
+            pad_token_id=mixtral_tokenizer.eos_token_id
+        )
+    decoded = mixtral_tokenizer.decode(outputs[0], skip_special_tokens=True)
+    return decoded.replace(full_prompt, "").strip()
 
+# Classify emotion using emotion classifier
 def classify_emotion(text):
     inputs = tokenizer_classifier(text, return_tensors="pt", truncation=True)
     with torch.no_grad():
@@ -32,22 +51,35 @@ def classify_emotion(text):
     probs = torch.nn.functional.softmax(logits, dim=-1)
     return probs.squeeze().cpu().numpy()
 
+# Run evaluation
 results = []
+
+print(f"🔥 Starting evaluation on {len(scenarios)} scenarios...")
 
 for idx, row in enumerate(scenarios):
     prompt = row["Scenario"]
     evoked_scores = []
 
+    print(f"\n[{idx+1}/{len(scenarios)}] Scenario: {prompt[:80]}...")
+
     for _ in range(5):
-        llm_response = query_mixtral(prompt)
-        evoked_scores.append(classify_emotion(llm_response))
+        try:
+            llm_response = query_mixtral(prompt)
+            print("🌀 LLM response:", llm_response)
+            evoked_scores.append(classify_emotion(llm_response))
+        except Exception as e:
+            print("❌ Error during generation/classification:", e)
+            continue
+
+    if not evoked_scores:
+        continue
 
     evoked_emotion = np.mean(evoked_scores, axis=0)
     top_3_indices = np.argsort(evoked_emotion)[::-1][:3]
 
     predicted_emotion = emotion_labels[np.argmax(evoked_emotion)]
     top_3_emotions = [(emotion_labels[i], float(evoked_emotion[i])) for i in top_3_indices]
-    matched = predicted_emotion == row["Emotion"]
+    matched = predicted_emotion.lower() == row["Emotion"].lower()
 
     result = {
         "Scenario": prompt,
@@ -65,15 +97,14 @@ for idx, row in enumerate(scenarios):
 
     results.append(result)
 
-    # Print progress
-    print(f"\n[{idx+1}/{len(scenarios)}] Scenario: {prompt[:80]}...")
     print(f"  True Emotion: {row['Emotion']}")
     print(f"  Predicted: {predicted_emotion} | Match: {matched}")
     for i, (label, score) in enumerate(top_3_emotions):
         print(f"    Top {i+1}: {label} ({score:.2f})")
 
+# Save results
 results_df = pd.DataFrame(results)
 results_df.to_csv("llm_empathy_eval.csv", index=False)
 
 accuracy = results_df["Match"].mean()
-print(f"Empathy Classification Accuracy: {accuracy:.2%}")
+print(f"\n✅ Empathy Classification Accuracy: {accuracy:.2%}")
