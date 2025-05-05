@@ -3,12 +3,10 @@ import torch
 import numpy as np 
 import pandas as pd 
 
-# Load data
 df = pd.read_csv("Situations_Data/situations_flat.csv")
 df = df.iloc[1:197]
 scenarios = df[["Emotion", "Factor", "Scenario"]].dropna().to_dict("records")
 
-# Load Mixtral model (Mistral-7B)
 mixtral_model_id = "mistralai/Mistral-7B-v0.1"
 mixtral_tokenizer = AutoTokenizer.from_pretrained(mixtral_model_id)
 mixtral_model = AutoModelForCausalLM.from_pretrained(
@@ -18,7 +16,6 @@ mixtral_model = AutoModelForCausalLM.from_pretrained(
 )
 mixtral_model.eval()
 
-# Load emotion classifier
 classifier_model = "bhadresh-savani/distilbert-base-uncased-emotion"
 tokenizer_classifier = AutoTokenizer.from_pretrained(classifier_model)
 model_classifier = AutoModelForSequenceClassification.from_pretrained(classifier_model)
@@ -26,7 +23,6 @@ model_classifier.eval()
 
 emotion_labels = model_classifier.config.id2label
 
-# Query Mistral manually using .generate()
 def query_mixtral(prompt):
     system_prompt = "Imagine you are the protagonist in this situation. How would you feel?"
     full_prompt = f"{system_prompt}\n\n{prompt}"
@@ -35,7 +31,7 @@ def query_mixtral(prompt):
     with torch.no_grad():
         outputs = mixtral_model.generate(
             **inputs,
-            max_new_tokens=50,
+            max_new_tokens=70,
             do_sample=True,
             temperature=0.7,
             pad_token_id=mixtral_tokenizer.eos_token_id
@@ -43,7 +39,6 @@ def query_mixtral(prompt):
     decoded = mixtral_tokenizer.decode(outputs[0], skip_special_tokens=True)
     return decoded.replace(full_prompt, "").strip()
 
-# Classify emotion using emotion classifier
 def classify_emotion(text):
     inputs = tokenizer_classifier(text, return_tensors="pt", truncation=True)
     with torch.no_grad():
@@ -51,10 +46,9 @@ def classify_emotion(text):
     probs = torch.nn.functional.softmax(logits, dim=-1)
     return probs.squeeze().cpu().numpy()
 
-# Run evaluation
 results = []
 
-print(f"🔥 Starting evaluation on {len(scenarios)} scenarios...")
+print(f"Starting evaluation on {len(scenarios)} scenarios...")
 
 for idx, row in enumerate(scenarios):
     prompt = row["Scenario"]
@@ -65,10 +59,10 @@ for idx, row in enumerate(scenarios):
     for _ in range(5):
         try:
             llm_response = query_mixtral(prompt)
-            print("🌀 LLM response:", llm_response)
+            print("LLM response:", llm_response)
             evoked_scores.append(classify_emotion(llm_response))
         except Exception as e:
-            print("❌ Error during generation/classification:", e)
+            print("Error during generation/classification:", e)
             continue
 
     if not evoked_scores:
@@ -102,9 +96,8 @@ for idx, row in enumerate(scenarios):
     for i, (label, score) in enumerate(top_3_emotions):
         print(f"    Top {i+1}: {label} ({score:.2f})")
 
-# Save results
 results_df = pd.DataFrame(results)
 results_df.to_csv("llm_empathy_eval.csv", index=False)
 
 accuracy = results_df["Match"].mean()
-print(f"\n✅ Empathy Classification Accuracy: {accuracy:.2%}")
+print(f"\n Empathy Classification Accuracy: {accuracy:.2%}")
