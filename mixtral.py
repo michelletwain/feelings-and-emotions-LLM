@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd 
 
 df = pd.read_csv("Situations_Data/situations_flat.csv")
-df = df.iloc[1:101]
+df = df.iloc[301:]
 scenarios = df[["Emotion", "Factor", "Scenario"]].dropna().to_dict("records")
 
 mixtral_model_id = "mistralai/Mistral-7B-v0.1"
@@ -82,7 +82,6 @@ for idx, row in enumerate(scenarios):
     true_emotion_mapped = label_mapping.get(true_emotion_raw, true_emotion_raw)
     matched = predicted_emotion.lower() == true_emotion_mapped
 
-
     result = {
         "Scenario": prompt,
         "True_Emotion": row["Emotion"],
@@ -106,7 +105,7 @@ for idx, row in enumerate(scenarios):
         print(f"    Top {i+1}: {label} ({score:.2f})")
 
 results_df = pd.DataFrame(results)
-results_df.to_csv("mixtral_197_to_300_empathy_eval.csv", index=False)
+results_df.to_csv("mixtral_301_to_end_empathy_eval.csv", index=False)
 
 accuracy = results_df["Match"].mean()
 print(f"\n Empathy Classification Accuracy: {accuracy:.2%}")

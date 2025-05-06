@@ -7,6 +7,7 @@ import csv
 import re
 from sklearn.metrics.pairwise import cosine_similarity
 import matplotlib.pyplot as plt
+from random import shuffle
 
 classifier_model = "bhadresh-savani/distilbert-base-uncased-emotion"
 tokenizer_classifier = AutoTokenizer.from_pretrained(classifier_model)
@@ -19,7 +20,7 @@ tokenizer.pad_token = tokenizer.eos_token
 model = AutoModelForCausalLM.from_pretrained(llm_id).to("cpu")
 model.train()
 
-emotions = ["Joy", "Anger", "Fear", "Disgust", "Grief", "Annoyance", "Nervousness", "Excitement", "Jealousy", "Anxiety", "Guilt", "Embarrassment", "Frustration", "Depression", "Neutral"]
+emotions = ["Joy", "Anger", "Pride", "Fear", "Excitement", "Jealousy", "Anxiety", "Guilt", "Embarrassment", "Frustration", "Depression", "Neutral"]
 df = pd.read_csv("Situations_Data/situations_flat.csv").iloc[1:]
 scenarios = df["Scenario"].dropna().tolist()
 
@@ -48,12 +49,13 @@ def get_target_emotion_vector(scenario):
     return vec
 
 #PPO
-optimizer = torch.optim.Adam(model.parameters(), lr=5e-6)
+optimizer = torch.optim.Adam(model.parameters(), lr=1e-6)
 results = []
 epoch_rewards = []
 
-for epoch in range(3):
+for epoch in range(5):
     print(f"\n--- EPOCH {epoch+1} ---\n")
+    shuffle(scenarios)
     epoch_reward_sum = 0
     for i, scenario in enumerate(scenarios):
         prompt = make_prompt(scenario)
@@ -85,9 +87,10 @@ for epoch in range(3):
                 break
 
         scores = scores[:len(emotions)] + [0] * (len(emotions) - len(scores))
-        pred_vector = np.array(scores) / 5
+        scores = scores[:len(emotions)] + [0] * (len(emotions) - len(scores))
         target_vector = get_target_emotion_vector(scenario)
-        reward = float(cosine_similarity([pred_vector], [target_vector])[0][0])
+        target_index = np.argmax(target_vector)
+        reward = scores[target_index] / 5.0
 
         clipped_reward = max(min(reward, 1.0), -1.0)
         if len(log_probs) > 0:
@@ -120,7 +123,7 @@ with open("ppo_emotion_alignment_results.csv", "w", newline="") as f:
     writer.writeheader()
     writer.writerows(results)
 
-plt.plot(range(1, len(epoch_rewards)+1), epoch_rewards, marker='o')
+plt.plot(range(1, len(epoch_rewards)+1), epoch_rewards, marker='o', linestyle='')
 plt.title("Average Reward per Epoch")
 plt.xlabel("Epoch")
 plt.ylabel("Average Reward")
