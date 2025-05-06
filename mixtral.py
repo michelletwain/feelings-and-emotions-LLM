@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd 
 
 df = pd.read_csv("Situations_Data/situations_flat.csv")
-df = df.iloc[1:197]
+df = df.iloc[1:101]
 scenarios = df[["Emotion", "Factor", "Scenario"]].dropna().to_dict("records")
 
 mixtral_model_id = "mistralai/Mistral-7B-v0.1"
@@ -16,10 +16,15 @@ mixtral_model = AutoModelForCausalLM.from_pretrained(
 )
 mixtral_model.eval()
 
-classifier_model = "bhadresh-savani/distilbert-base-uncased-emotion"
+classifier_model = "j-hartmann/emotion-english-distilroberta-base"
 tokenizer_classifier = AutoTokenizer.from_pretrained(classifier_model)
 model_classifier = AutoModelForSequenceClassification.from_pretrained(classifier_model)
 model_classifier.eval()
+label_mapping = {
+    "guilt": "remorse",
+    "jealousy": "envy",
+    "frustration": "anger",
+}
 
 emotion_labels = model_classifier.config.id2label
 
@@ -73,11 +78,15 @@ for idx, row in enumerate(scenarios):
 
     predicted_emotion = emotion_labels[np.argmax(evoked_emotion)]
     top_3_emotions = [(emotion_labels[i], float(evoked_emotion[i])) for i in top_3_indices]
-    matched = predicted_emotion.lower() == row["Emotion"].lower()
+    true_emotion_raw = row["Emotion"].lower()
+    true_emotion_mapped = label_mapping.get(true_emotion_raw, true_emotion_raw)
+    matched = predicted_emotion.lower() == true_emotion_mapped
+
 
     result = {
         "Scenario": prompt,
         "True_Emotion": row["Emotion"],
+        "Mapped_Emotion": true_emotion_mapped,
         "Factor": row["Factor"],
         "Predicted_Emotion": predicted_emotion,
         "Match": matched,
@@ -97,7 +106,7 @@ for idx, row in enumerate(scenarios):
         print(f"    Top {i+1}: {label} ({score:.2f})")
 
 results_df = pd.DataFrame(results)
-results_df.to_csv("llm_empathy_eval.csv", index=False)
+results_df.to_csv("mixtral_197_to_300_empathy_eval.csv", index=False)
 
 accuracy = results_df["Match"].mean()
 print(f"\n Empathy Classification Accuracy: {accuracy:.2%}")
