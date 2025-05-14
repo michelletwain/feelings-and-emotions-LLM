@@ -1,6 +1,6 @@
 # feelings-and-emotions-LLM
 
-Final project for EECS6895: Big Data Analytics & AI
+Final project for EECS6895: Big Data Analytics & AI <br>
 Columbia University, Spring 2025
 
 ## Overview
