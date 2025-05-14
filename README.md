@@ -73,17 +73,3 @@ The dataset is flattened into a CSV format with `Scenario`, `Emotion`, and `Fact
 - **Execution Platforms**: Google Colab, VSCode, local machines
 
 ---
-
-## Getting Started
-
-Before running the project, authenticate with Hugging Face:
-
-```bash
-huggingface-cli login
-
-Paste your Hugging Face access token when prompted.
-
-Then run the main script:
-
-python3 main.py
-```
