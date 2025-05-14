@@ -1,6 +1,6 @@
 # feelings-and-emotions-LLM
 
-Final project for EECS6895: Empirical Methods for Natural Language Processing  
+Final project for EECS6895: Big Data Analytics & AI
 Columbia University, Spring 2025
 
 ## Overview
